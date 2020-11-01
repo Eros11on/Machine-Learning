@@ -1,0 +1,128 @@
+@[TOC](目录)
+## 综述
+  本次研究基于决策树方法对可能影响专利被引的6个影响因素（专利申请年、专利公开年、发明人数量、专利权人数量、发明人国家、专利权人国家）与专利是否被引的潜在关系进行分析。研究发现，专利申请年是其中影响最为显著的因素，而后依次是发明人数量、专利公开年数量、专利权人数量，而其他2个指标的影响效果并不明显。
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140040763.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQ2NTk1NTkx,size_16,color_FFFFFF,t_70#pic_center)
+
+## 1.数据来源与指标选取
+### 1.1数据来源
+本研究选取美国专利号为**43518**开头的专利数据作为研究对象，获得专利数据**1507**条，经过数据清理后得到**454**条标准化数据。
+### 1.2指标选取
+根据可能对专利被引产生影响的因素列表，拟定决策树的分析指标共6个，分别是：专利申请年PATN:APD、专利公开年PATN:ISD、发明人数量INVTSUM、专利权人数量ASSGSUM、发明人国家INVT:CNT、专利权人国家ASSG:CNT，下表是描述统计。
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140138683.png#pic_center)
+
+## 2.数据清洗与转换
+### 2.1数据清洗
+
+```python
+data.isnull().any(axis=0) //查看空值
+data.isnull().any(axis=1)//判断数据行中是否存在缺失值
+data.loc[data.isnull().any(axis=1)]//定位缺失值所在行
+data3=data.dropna()
+data//直接删除空值所在行
+data_null_0=data.fillna(0,inplace=False)//定义缺失值为零
+data.drop(index=1,axis=1)//删除特定行
+
+```
+### 2.2数据转换
+对发明人及专利人国家不是US的标记为非US
+核心代码为：
+
+```python
+data['INVT：CNT']=data['INVT：CNT'].str.replace('JPX','非US')
+data
+```
+
+得到数据如下图
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140327110.png#pic_center)
+
+
+## 3.决策树模型构建及准确性评估与优化
+### 3.1模型构建
+选取特征值和分析指标，并对数据做标化处理
+核心代码：
+
+```python
+target = df_zhuanli['Cited']
+data=df_zhuanli.loc[:,'PATN:ISD':'ASSG:CNT']
+```
+
+得下图
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140347379.png#pic_center)
+**建立训练集和数据集，按照20%和80%区分**
+核心代码
+
+```python
+from sklearn.model_selection import train_test_splittrain_data, test_data, train_target, test_target = train_test_split(data,\ target, test_size=0.2, train_size=0.8 ,random_state=1234)
+```
+
+**建立决策树 深度为4 使用信息熵来衡量集合纯度**
+核心代码：
+
+```python
+from sklearn.tree import DecisionTreeClassifierclf = DecisionTreeClassifier(criterion='entropy', max_depth=4, class_weight=None, random_state=1234 ) clf.fit(train_data,train_target)
+```
+
+### 准确性评估与优化
+对于分类问题，我们建立混淆矩阵通过计算Accuracy、Precision、Recall、F1-score四个指标对模型进行评估
+核心代码
+
+```python
+import sklearn.metrics as metrics
+print(metrics.classification_report(test_target, clf.predict(test_data)))
+```
+
+得下图
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140445594.png#pic_center)
+
+**由图中可知对于被引用=1情况，f1-score只有0.43，召回率只有0.33，说明在被引用的专利中，模型只能找出其中的33%，损失极大，所以提高被引用专利的权重**
+核心代码如下：
+
+```python
+clf.set_params(**{'class_weight':{0:1,1:5}})//调整被引用的权重为未被引用的五倍
+clf.fit(train_data,train_target)
+print(metrics.classification_report(test_target, clf.predict(test_data)))
+```
+
+得下图
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140507509.png#pic_center)
+可知，**优化后召回率达到97%**，符合预期，模型可行
+
+## 4.分析结果
+**计算出影响较大的特征值：**
+核心代码：
+
+```python
+list(zip(data.columns, clf.feature_importances_))
+```
+
+得下图
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140540609.png#pic_center)
+**按挖掘模型生成的决策树分析结果**
+
+```python
+import pydotplusfrom IPython.display 
+import Image 
+import sklearn.tree as treedot_data = tree.export_graphviz(clf, out_file=None, feature_names=data.columns, class_names=['0','1'], filled=True) graph = pydotplus.graph_from_dot_data(dot_data) Image(graph.create_png())
+```
+
+如图：
+![在这里插入图片描述](https://img-blog.csdnimg.cn/202010301406009.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQ2NTk1NTkx,size_16,color_FFFFFF,t_70#pic_center)
+
+**根据决策树可分析得出部分规则**
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140647184.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQ2NTk1NTkx,size_16,color_FFFFFF,t_70#pic_center)
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/2020103014063716.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQ2NTk1NTkx,size_16,color_FFFFFF,t_70#pic_center)
+**根据以上规则可得出以下结论：**
+
+1.规则 1 ～ 规则 4 表明专利优先权年越早的专利更容易被引用。1987 年之前的专利被引率达到66.7% ， 而2003—2013 年的专利被引率仅仅为 8.5% 。根据专利被引率绘制被引率趋势图，见图 ，可以发现，专利引用率逐步下降，这进一步证明了时间因素对于专利被引行为的 影响作用
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140718532.png#pic_center)
+2.规则5与规则6表明，发明人数量对于专利被引有一定的影响，但是影响成度并不大，规则7与规则8表明，专利权人数量的增加，对于专利是否被引也具有一定的影响
+
+3.规则 9到规则12表明，专利公开年对于专利是否被引也具有较高的影响力，但不及专利申请年对于专利是否被引的影响程度大。
+
+4.根据决策树预测模型的依赖关系网络绘制专利被引重要影响因素示意图，见图
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20201030140815311.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQ2NTk1NTkx,size_16,color_FFFFFF,t_70#pic_center)
+
+可以发现，能够对预测属性产生影响的属性由强到弱依次是: 专利申请年、专利公开年、专利权人数量、发明人数量。因此在本研究选取的6个影响专利被引的因素中，专利的专利申请年对被引影响最为显著的因素。而发明人国家、专利权人国家2个指标的影响效果并不显著
+
