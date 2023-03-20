@@ -1,2 +1,2 @@
-# DATA-MINING
-Document some knowledge of data mining and text mining
+# Machine-Learning
+Document some knowledge of machine learning
